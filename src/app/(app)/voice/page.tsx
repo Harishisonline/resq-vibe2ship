@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth-provider";
 import * as repo from "@/lib/data/repository";
 import { startDemoSession } from "@/lib/voice/demo";
-import { generateMiniMaxVoice, isMiniMaxVoiceConfigured, unlockAudio } from "@/lib/voice/minimax-tts";
+import { generateMiniMaxVoice, isMiniMaxVoiceConfigured, stopSpeaking, unlockAudio } from "@/lib/voice/minimax-tts";
 import { isSpeechRecognitionSupported, startRealVoiceSession } from "@/lib/voice/minimax-live";
 import { Markdown } from "@/components/chat/markdown";
 import type { TranscriptTurn, ToolCallEvent, VoiceStatus, VoiceSession } from "@/lib/voice/types";
@@ -80,6 +80,7 @@ export default function VoicePage() {
   }, [transcripts]);
 
   const stop = useCallback(() => {
+    stopSpeaking();
     if (sessionRef.current) {
       void sessionRef.current.stop();
       sessionRef.current = null;

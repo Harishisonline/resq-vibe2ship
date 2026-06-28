@@ -50,7 +50,9 @@ interface T2AResponse {
   base_resp?: { status_code?: number; status_msg?: string };
 }
 
-export async function generateSpeech(options: TTSOptions): Promise<ArrayBuffer> {
+export async function generateSpeech(
+  options: TTSOptions & { signal?: AbortSignal }
+): Promise<ArrayBuffer> {
   if (!API_KEY) throw new Error("MINIMAX_API_KEY not set");
 
   const response = await fetch(`${T2A_URL}/t2a_v2`, {
@@ -77,6 +79,7 @@ export async function generateSpeech(options: TTSOptions): Promise<ArrayBuffer> 
       },
       output_format: "hex",
     }),
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -103,6 +106,8 @@ export async function generateSpeech(options: TTSOptions): Promise<ArrayBuffer> 
 let player: HTMLAudioElement | null = null;
 let activeObjectUrl: string | null = null;
 let audioUnlocked = false;
+let cancelPlayback: (() => void) | null = null;
+let activeFetchAbort: AbortController | null = null;
 
 function ensurePlayer(): HTMLAudioElement {
   if (typeof window === "undefined") throw new Error("Audio requires a browser");
@@ -175,6 +180,38 @@ export function unlockAudio(): void {
 }
 
 /**
+ * Immediately stop any in-flight TTS fetch and audio playback.
+ * Call when the user taps the mic to end/interrupt a voice session.
+ */
+export function stopSpeaking(): void {
+  activeFetchAbort?.abort();
+  activeFetchAbort = null;
+
+  cancelPlayback?.();
+  cancelPlayback = null;
+
+  const el = player;
+  if (el) {
+    try {
+      el.pause();
+      el.currentTime = 0;
+    } catch {
+      /* noop */
+    }
+    try {
+      el.removeAttribute("src");
+      el.load();
+    } catch {
+      /* noop */
+    }
+  }
+  if (activeObjectUrl) {
+    URL.revokeObjectURL(activeObjectUrl);
+    activeObjectUrl = null;
+  }
+}
+
+/**
  * Play one TTS clip on the persistent (unlocked) element. Resolves when
  * playback ends or errors. Reusing the same element is what lets Safari allow
  * the play() call outside the original gesture.
@@ -189,28 +226,39 @@ function playOnPlayer(buffer: ArrayBuffer): Promise<void> {
     const url = URL.createObjectURL(new Blob([buffer], { type: "audio/mp3" }));
     activeObjectUrl = url;
 
-    const cleanup = () => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cancelPlayback = null;
       el.removeEventListener("ended", onEnded);
       el.removeEventListener("error", onError);
       if (activeObjectUrl === url) {
         URL.revokeObjectURL(url);
         activeObjectUrl = null;
       }
+      resolve();
     };
-    const onEnded = () => { cleanup(); resolve(); };
-    const onError = () => { cleanup(); resolve(); };
+
+    cancelPlayback = finish;
+
+    const onEnded = () => finish();
+    const onError = () => finish();
 
     el.addEventListener("ended", onEnded, { once: true });
     el.addEventListener("error", onError, { once: true });
     el.src = url;
-    try { el.currentTime = 0; } catch { /* noop */ }
+    try {
+      el.currentTime = 0;
+    } catch {
+      /* noop */
+    }
 
     const p = el.play();
     if (p && typeof p.then === "function") {
       p.catch((err) => {
         console.warn("[minimax-tts] audio playback failed:", err);
-        cleanup();
-        resolve();
+        finish();
       });
     }
   });
@@ -253,12 +301,20 @@ export async function generateMiniMaxVoiceAndWait(
   options: TTSOptions
 ): Promise<boolean> {
   if (!isMiniMaxVoiceConfigured) return false;
+  stopSpeaking();
+  const controller = new AbortController();
+  activeFetchAbort = controller;
   try {
-    const buffer = await generateSpeech(options);
+    const buffer = await generateSpeech({ ...options, signal: controller.signal });
+    if (controller.signal.aborted) return false;
+    activeFetchAbort = null;
     await playAudioAsync(buffer);
-    return true;
+    return !controller.signal.aborted;
   } catch (err) {
+    if (controller.signal.aborted) return false;
     console.warn("[minimax-tts] speech generation failed:", err);
     return false;
+  } finally {
+    if (activeFetchAbort === controller) activeFetchAbort = null;
   }
 }

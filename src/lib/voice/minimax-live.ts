@@ -14,6 +14,7 @@
 import { streamAgentResponse } from "@/lib/agent/stream";
 import {
   generateMiniMaxVoiceAndWait,
+  stopSpeaking,
   unlockAudio,
 } from "@/lib/voice/minimax-tts";
 import type {
@@ -315,6 +316,7 @@ export function startRealVoiceSession(
     stopped = true;
     processing = false;
     if (resumeTimer) clearTimeout(resumeTimer);
+    stopSpeaking();
     try {
       recognition.abort();
     } catch {
