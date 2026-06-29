@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Deploy ResQ to Google Cloud Run (project: resq-500822)
+# Deploy ResQ to Google Cloud Run (project: resq-e5f2e)
 # Usage: ./scripts/deploy-gcp.sh
 set -euo pipefail
 
-PROJECT_ID="${GCP_PROJECT_ID:-resq-500822}"
+PROJECT_ID="${GCP_PROJECT_ID:-resq-e5f2e}"
 REGION="${GCP_REGION:-us-central1}"
 SERVICE_NAME="${GCP_SERVICE:-resq}"
 REPO_NAME="${GCP_ARTIFACT_REPO:-resq}"
