@@ -5,6 +5,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_REGION: us-central1
+  SERVICE_NAME: resq
+  REPO_NAME: resq
+  IMAGE: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/resq/resq:latest
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -20,30 +27,45 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           service_account_key: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Configure Docker auth for Artifact Registry
-        run: gcloud auth configure-docker us-central1-docker.pkg.dev
+          project_id: ${{ vars.GCP_PROJECT_ID }}
 
       - name: Build and push container image
         run: |
-          gcloud builds submit \
-            --tag us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/resq/resq:latest \
+          gcloud builds submit . \
+            --config=cloudbuild.yaml \
+            --substitutions="_IMAGE=${IMAGE},_NEXT_PUBLIC_FIREBASE_API_KEY=${{ vars.NEXT_PUBLIC_FIREBASE_API_KEY }},_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ vars.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }},_NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID }},_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ vars.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }},_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ vars.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }},_NEXT_PUBLIC_FIREBASE_APP_ID=${{ vars.NEXT_PUBLIC_FIREBASE_APP_ID }},_NEXT_PUBLIC_MINIMAX_API_KEY=${{ secrets.NEXT_PUBLIC_MINIMAX_API_KEY }}" \
             --project=${{ vars.GCP_PROJECT_ID }}
 
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy resq \
-            --image=us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/resq/resq:latest \
-            --region=us-central1 \
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image=${{ env.IMAGE }} \
+            --region=${{ env.GCP_REGION }} \
             --platform=managed \
             --allow-unauthenticated \
             --port=8080 \
-            --memory=512Mi \
+            --memory=1Gi \
             --cpu=1 \
             --min-instances=0 \
             --max-instances=10 \
             --concurrency=80 \
-            --timeout=60s \
-            --set-env-vars=NEXT_TELEMETRY_DISABLED=1,NODE_ENV=production \
-            --set-secrets=GOOGLE_AI_API_KEY=GOOGLE_AI_API_KEY:latest \
-            --project=${{ vars.GCP_PROJECT_ID }}
+            --timeout=120s \
+            --set-env-vars="NODE_ENV=production,NEXT_TELEMETRY_DISABLED=1,MINIMAX_BASE_URL=https://api.minimax.io/v1,MINIMAX_MODEL=MiniMax-M2.7,MINIMAX_T2A_URL=https://api.minimax.io/v1,FIREBASE_PROJECT_ID=${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID }},GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }},GOOGLE_OAUTH_REDIRECT_URI=${{ vars.GOOGLE_OAUTH_REDIRECT_URI }}" \
+            --set-secrets="MINIMAX_API_KEY=MINIMAX_API_KEY:latest,GOOGLE_OAUTH_CLIENT_SECRET=GOOGLE_OAUTH_CLIENT_SECRET:latest" \
+            --project=${{ vars.GCP_PROJECT_ID }} \
+            --quiet 2>/dev/null || \
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image=${{ env.IMAGE }} \
+            --region=${{ env.GCP_REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=8080 \
+            --memory=1Gi \
+            --cpu=1 \
+            --min-instances=0 \
+            --max-instances=10 \
+            --concurrency=80 \
+            --timeout=120s \
+            --set-env-vars="NODE_ENV=production,NEXT_TELEMETRY_DISABLED=1,MINIMAX_API_KEY=${{ secrets.MINIMAX_API_KEY }},MINIMAX_BASE_URL=https://api.minimax.io/v1,MINIMAX_MODEL=MiniMax-M2.7,MINIMAX_T2A_URL=https://api.minimax.io/v1,FIREBASE_PROJECT_ID=${{ vars.NEXT_PUBLIC_FIREBASE_PROJECT_ID }},GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }},GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }},GOOGLE_OAUTH_REDIRECT_URI=${{ vars.GOOGLE_OAUTH_REDIRECT_URI }}" \
+            --project=${{ vars.GCP_PROJECT_ID }} \
+            --quiet
